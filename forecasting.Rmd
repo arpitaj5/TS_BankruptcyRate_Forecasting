@@ -1,0 +1,241 @@
+---
+title: "Forecasting Bankruptcy Rate"
+author: "Arpita"
+date: "2/28/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#load train data
+setwd('/Users/arpita/TimeSeries/Project') 
+data <- read.csv( 'train.csv' , sep =  ',' )
+```
+
+```{r}
+#Train 1990-2008, val 2009-2010
+train <- data[37:264, ] 
+val <- data[265:288, ]
+
+# check the plot for Unemployment_Rate, Population, Bankruptcy_Rate, House_Price_Index
+par(mfrow=c(2,2))
+plot(train[,2], ylab = "Unemployment_Rate",type='l')
+plot(train[,3], ylab = "Population",type='l')
+plot(train[,4], ylab = "Bankruptcy_Rate",type='l')
+plot(train[,5], ylab = "House_Price_Index",type='l')
+```
+
+```{r}
+train_bank <- ts(train$Bankruptcy_Rate, start = c(1990, 1), end = c(2008, 12), frequency = 12)
+train_pop <- ts(train$Population, start = c(1990, 1), end = c(2008, 12), frequency = 12) 
+train_unemp <- ts(train$Unemployment_Rate, start = c(1990, 1), end = c(2008, 12), frequency = 12)
+train_hpi <- ts(train$House_Price_Index, start = c(1990, 1), end = c(2008, 12), frequency = 12) 
+valid_bank <- ts(val$Bankruptcy_Rate, start = c(2009, 1), end = c(2010, 12), frequency = 12) 
+valid_pop <- ts(val$Population, start = c(2009, 1), end = c(2010, 12), frequency = 12) 
+valid_unemp <- ts(val$Unemployment_Rate, start = c(2009, 1), end = c(2010, 12), frequency = 12) 
+valid_hpi <- ts(val$House_Price_Index, start = c(2009, 1), end = c(2010, 12), frequency = 12)
+```
+
+BEST VAR Model (1990-2008, log(bankruptcy) and log(hpi) RMSE:0.002906416)
+```{r}
+m <- VAR(y = data.frame(log(train_bank), log(train_hpi), log(train_pop)), p = 8, season = 12)
+# prediction:
+f <- exp(predict(m, n.ahead=24, ci = 0.95)$fcst$log.train_bank[,1])
+f_comp <- predict(m, n.ahead=24, ci = 0.95)
+f_comp <- exp(f_comp$fcst$log.train_bank.)
+f_lower <- f_comp[,2]
+f_upper <- f_comp[,3]
+cat ("RMSE =", sqrt(mean((f - valid_bank )^2)), "\n" )
+```
+
+for data 1990-2008: best model is SARIMA(2,0,4)(3,1,5)[12] RMSE:0.002772531
+```{r}
+m2 <- arima(log(train_bank), order = c(2,0,4),seasonal = list(order = c(3,1,5), period = 12), method = "CSS-ML") 
+f2 <- exp(forecast(m2, h = 24, level=c(95))$mean)
+f2_comp <- forecast(m2, h = 24, level=c(95))
+f2_lower <- exp(f2_comp$lower)
+f2_upper <- exp(f2_comp$upper)
+cat ("RMSE =", sqrt(mean((f2 - valid_bank )^2)), "\n" )
+```
+
+for data 1987-2008: best model is SARIMA(1,0,0)(5,1,1)[12] RMSE:0.003130299
+```{r}
+train <- data[1:264, ] 
+val <- data[265:288, ]
+train_bank <- ts(train$Bankruptcy_Rate, start = c(1987, 1), end = c(2008, 12), frequency = 12)
+train_pop <- ts(train$Population, start = c(1987, 1), end = c(2008, 12), frequency = 12) 
+train_unemp <- ts(train$Unemployment_Rate, start = c(1987, 1), end = c(2008, 12), frequency = 12) 
+train_hpi <- ts(train$House_Price_Index, start = c(1987, 1), end = c(2008, 12), frequency = 12)
+
+m3 <- arima(log(train_bank), order = c(1,0,0),seasonal = list(order = c(5,1,1), period = 12), method = "ML") 
+f3 <- exp(forecast(m3, h = 24, level=c(95))$mean)
+f3_comp <- forecast(m3, h = 24, level=c(95))
+f3_lower <- exp(f3_comp$lower)
+f3_upper <- exp(f3_comp$upper)
+cat ("RMSE =", sqrt(mean((f3 - valid_bank )^2)), "\n" )
+```
+
+Find best weighted average:
+```{r}
+for (step in seq(0.05, 0.95, 0.05) ){ 
+  pred <- step*f2 + (1-step)*f3
+  cat ("weight=", step,"RMSE =", sqrt(mean((pred - valid_bank )^2)), "\n" ) 
+}
+```
+
+Look between weights 0.55 and 0.65
+```{r}
+rmses <- c()
+weight <- c()
+for (step in seq(0.55, 0.65, 0.0001) ){
+  pred <- step*f2 + (1-step)*f3
+  weight <- c(weight, step)
+  rmse <- sqrt(mean((pred - valid_bank )^2)) rmses <- c(rmses, rmse)
+}
+index <- which(rmses == min(rmses)) 
+#optimal weight
+ow <- weight[index]
+ow
+```
+
+
+```{r}
+rmses[index]
+```
+
+```{r}
+#Optimal model
+om <- 0.6224*f2 + 0.3776*f3
+om_lower <- 0.6224*f2_lower + 0.3776*f3_lower
+om_upper <- 0.6224*f2_upper + 0.3776*f3_upper
+cat ("RMSE =", sqrt(mean((om - valid_bank )^2)), "\n" )
+```
+Visual comparison of the models
+```{r}
+train <- data[1:288, ]
+par(mfrow=c(2,2))
+#plot m
+plot(ts(train[,4], start = c(1987, 1), frequency = 12), xlim=c(2005,2011), ylim=c(0,0.07), main = "Best VAR model")
+# adding a vertical line at the point where prediction starts 
+abline(v=2009,col= blue ,lty=2)
+# plotting the predict
+points(ts(f, start = c(2009, 1), frequency = 12),type= l ,col= blue )
+# plotting lower limit of the prediction interval
+points(ts(f_lower, start = c(2009, 1), frequency = 12),type= l , col= green ) 
+# plotting upper limit of the prediction interval
+points(ts(f_upper, start = c(2009, 1), frequency = 12),type= l , col= green ) 
+legend(2005, 0.07, legend = 
+         c("observed values", "prediction interval", "prediction"), 
+       col = c("black", "green", "blue"), lty = 1, cex = 0.5)
+#plot m2
+plot(ts(train[,4], start = c(1987, 1), frequency = 12), xlim=c(2005,2011), ylim=c(0,0.07), main = "Best SARIMA model")
+# adding a vertical line at the point where prediction starts abline(v=2009,col= blue ,lty=2)
+# plotting the predict
+points(f2,type= l ,col= blue )
+# plotting lower limit of the prediction interval 
+points(f2_lower,type= l , col= green )
+# plotting upper limit of the prediction interval 
+points(f2_upper,type= l , col= green ) 
+legend(1987, 0.07, legend = 
+         c("observed values", "prediction interval", "prediction"), 
+       col = c("black", "green", "blue"), lty = 1, cex = 0.5)
+#plot m3
+plot(ts(train[,4], start = c(1987, 1), frequency = 12), xlim=c(2005,2011), ylim=c(0,0.07), main = "2nd Best SARIMA model")
+# adding a vertical line at the point where prediction starts 
+abline(v=2009,col= blue ,lty=2)
+# plotting the predict
+points(f3,type= l ,col= blue )
+# plotting lower limit of the prediction interval 
+points(f3_lower,type= l , col= green )
+# plotting upper limit of the prediction interval 
+points(f3_upper,type= l , col= green ) 
+legend(1987, 0.07, legend = 
+         c("observed values", "prediction interval", "prediction"), 
+       col = c("black", "green", "blue"), lty = 1, cex = 0.5)
+#plot Optimal Model
+plot(ts(train[,4], start = c(1987, 1), frequency = 12), xlim=c(2005,2011), ylim=c(0,0.07), main = "Optimal model")
+# adding a vertical line at the point where prediction starts abline(v=2009,col= blue ,lty=2)
+# plotting the predict
+points(om,type= l ,col= blue )
+# plotting lower limit of the prediction interval 
+points(om_lower,type= l , col= green )
+# plotting upper limit of the prediction interval 
+points(om_upper,type= l , col= green ) 
+legend(1987, 0.07, legend = 
+         c("observed values", "prediction interval", "prediction"), 
+       col = c("black", "green", "blue"), lty = 1, cex = 0.5)
+
+```
+Fitting the optimal model up to 2010  
+m2 up to 2010
+```{r}
+train <- data[37:288, ]
+train_bank <- ts(train$Bankruptcy_Rate, start = c(1990, 1), end = c(2010, 12), frequency = 12)
+train_pop <- ts(train$Population, start = c(1990, 1), end = c(2010, 12), frequency = 12) 
+train_unemp <- ts(train$Unemployment_Rate, start = c(1990, 1), end = c(2010, 12), frequency = 12) 
+train_hpi <- ts(train$House_Price_Index, start = c(1990, 1), end = c(2010, 12), frequency = 12)
+m2 <- arima(log(train_bank), order = c(2,0,4),seasonal = list(order = c(3,1,5), period = 12), method = "ML") 
+f2 <- exp(forecast(m2, h = 24, level=c(95))$mean)
+f2_complete <- forecast(m2, h = 24, level=c(95))
+# cat ("RMSE =", sqrt(mean((f2 - valid_bank )^2)), "\n" )
+```
+
+m3 up to 2010
+```{r}
+train <- data[1:288, ]
+train_bank <- ts(train$Bankruptcy_Rate, start = c(1987, 1), end = c(2010, 12), frequency = 12)
+train_pop <- ts(train$Population, start = c(1987, 1), end = c(2010, 12), frequency = 12) 
+train_unemp <- ts(train$Unemployment_Rate, start = c(1987, 1), end = c(2010, 12), frequency = 12) 
+train_hpi <- ts(train$House_Price_Index, start = c(1987, 1), end = c(2010, 12), frequency = 12)
+m3 <- arima(log(train_bank), order = c(1,0,0),seasonal = list(order = c(5,1,1), period = 12), method = "ML") 
+f3 <- exp(forecast(m3, h = 24, level=c(95))$mean)
+f3_complete <- forecast(m3, h = 24, level=c(95))
+# cat ("RMSE =", sqrt(mean((f3 - valid_bank )^2)), "\n" )
+```
+
+```{r}
+#Final predictions
+fp <- 0.6224*f2 + 0.3776*f3
+# cat ("RMSE =", sqrt(mean((om - valid_bank )^2)), "\n" )
+```
+
+```{r}
+#Plot of final predictions
+fp_lower <- 0.6224*exp(f2_complete$lower) + 0.3776*exp(f3_complete$lower) 
+fp_upper <- 0.6224*exp(f2_complete$upper) + 0.3776*exp(f3_complete$upper)
+par(mfrow=c(1,1))
+plot(ts(train[,4], start = c(1987, 1), frequency = 12),
+xlim=c(1987,2012), ylim=c(0,0.07),
+main = "Final model predictions", ylab="Monthly Bankruptcy Rate") 
+#plotting the data # adding a vertical line at the point where prediction starts 
+abline(v=2011,col= blue ,lty=2)
+# plotting the predict
+points(fp,type= l ,col= blue )
+# plotting lower limit of the prediction interval 
+points(fp_lower,type= l , col= green )
+# plotting upper limit of the prediction interval 
+points(fp_upper,type= l , col= green ) 
+legend(1987, 0.07, legend = 
+         c("observed values", "prediction interval", "prediction"), 
+       col = c("black", "green", "blue"), lty = 1, cex = 0.8)
+```
+
+Predictions table
+```{r}
+test <- read.csv( 'test.csv' , sep =  ',' )
+test <- ts(test, start = c(2011,1), frequency = 12) 
+test_ <- window(test, start=c(2011,1), end=c(2012,12)) 
+t <- as.numeric(time(test_))
+t2 <- zoo::yearmon(t)
+table <- data.frame(t2, as.numeric(fp), as.numeric(fp_lower), as.numeric(fp_upper)) 
+colnames(table) <- c("Month-Year","Prediction", "Lower Bound", "Upper Bound") 
+kable(table)
+```
+
+```{r}
+write.table(as.numeric(fp), "/Users/arpita/TimeSeries/Project/test_result.txt")
+ 
+```
