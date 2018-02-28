@@ -8,3 +8,6 @@ Using historical data of 22 years, this model forecasts Canada's monthly bankrup
 Implemented different time series models such as ARIMA, ARIMAX, SARIMA, SARIMAX, VAR, VARX, Holt-Winters and Exponential Smoothing and Elastic Net in R for accurate predictions and prevented overfitting using a validation set. Finally, combining two SARIMA models yielded the best result.
 
 
+The raw code for the project can be found [here](https://github.com/arpitaj5/TS_BankruptcyRate_Forecasting/blob/master/forecasting.Rmd). Currently, it contains only the models generating optimal result. In future, I will update it with all the test cases and residual diagnostics.
+
+Here is the [project report](https://github.com/arpitaj5/TS_BankruptcyRate_Forecasting/blob/master/Project_Report.pdf) for further details around the modeling techniques.
